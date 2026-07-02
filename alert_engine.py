@@ -1,33 +1,24 @@
 import os
-import json
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
 import difflib
 import feedparser
 from datetime import datetime, timezone, timedelta
-from ics import Calendar, Event
 from google import genai
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
 
 # Configurations
-RSS_URLS = [
-    os.environ.get("SAFETY_RSS_URL_1"), 
-    os.environ.get("SAFETY_RSS_URL_2"), 
-    os.environ.get("SAFETY_RSS_URL_3")
-]
+RSS_URLS = [os.environ.get("SAFETY_RSS_URL_1"), os.environ.get("SAFETY_RSS_URL_2"), os.environ.get("SAFETY_RSS_URL_3")]
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
-CALENDAR_ID = os.environ.get("TARGET_CALENDAR_ID")
-SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT")
 
-ICS_FILE = "psm_alerts.ics"
+# Email Configurations
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
+SENDER_PASSWORD = os.environ.get("SENDER_APP_PASSWORD")
+RECIPIENTS = os.environ.get("RECIPIENT_EMAILS", "").split(",")
+
 URL_HISTORY_FILE = "processed_urls.txt"
 TITLE_HISTORY_FILE = "processed_titles.txt"
-
-def get_calendar_service():
-    if not SERVICE_ACCOUNT_JSON: return None
-    scopes = ['https://www.googleapis.com/auth/calendar.events']
-    creds_dict = json.loads(SERVICE_ACCOUNT_JSON)
-    creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=scopes)
-    return build('calendar', 'v3', credentials=creds)
 
 def load_history(filename):
     if not os.path.exists(filename): return []
@@ -56,22 +47,69 @@ def is_critical_safety_event(title, summary):
         label = response.text.strip().lower()
         if label in ["catastrophic industrial incident", "regulatory or legal action"]:
             return True
+        print(f"AI Filter Blocked: {title} ({label})")
         return False
     except Exception as e:
+        print(f"API Error: {e}")
         return True
+
+def generate_ics_attachment(title, summary, link, start_time, end_time):
+    """Creates a raw ICS calendar file in memory to attach to the email."""
+    dt_start = start_time.strftime('%Y%m%dT%H%M%SZ')
+    dt_end = end_time.strftime('%Y%m%dT%H%M%SZ')
+    
+    ics_content = f"""BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Process Safety Alert Engine//EN
+BEGIN:VEVENT
+SUMMARY:🚨 PSM Alert: {title[:40]}...
+DESCRIPTION:Incident: {title}\\n\\nSummary: {summary}\\n\\nLink: {link}
+DTSTART:{dt_start}
+DTEND:{dt_end}
+END:VEVENT
+END:VCALENDAR"""
+    return ics_content
+
+def send_instant_email(title, summary, link):
+    if not SENDER_EMAIL or not SENDER_PASSWORD:
+        print("Missing Email Credentials in GitHub Secrets. Aborting email.")
+        return
+
+    # Set appointment for right now
+    start_time = datetime.now(timezone.utc)
+    end_time = start_time + timedelta(minutes=15)
+
+    # Build the Email
+    msg = MIMEMultipart()
+    msg['From'] = SENDER_EMAIL
+    msg['To'] = ", ".join(RECIPIENTS)
+    msg['Subject'] = f"🚨 Safety Alert: {title[:50]}"
+
+    # Email Body
+    body_text = f"High-Consequence Process Safety Event Detected\n\nTitle: {title}\n\nSummary: {summary}\n\nRead more: {link}\n\n(A calendar invite is attached to block this review on your schedule)."
+    msg.attach(MIMEText(body_text, 'plain'))
+
+    # Build and Attach the Calendar File
+    ics_data = generate_ics_attachment(title, summary, link, start_time, end_time)
+    part = MIMEApplication(ics_data.encode('utf-8'), Name="psm_alert.ics")
+    part['Content-Disposition'] = 'attachment; filename="psm_alert.ics"'
+    msg.attach(part)
+
+    # Fire the Email via Gmail's Servers
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        print(f"Successfully emailed alert to team: {title}")
+    except Exception as e:
+        print(f"Failed to send email: {e}")
 
 def main():
     processed_urls = set(load_history(URL_HISTORY_FILE))
     processed_titles = load_history(TITLE_HISTORY_FILE)
     
-    # Load ICS Calendar for external clients
-    ics_calendar = Calendar(open(ICS_FILE, "r", encoding="utf-8").read()) if os.path.exists(ICS_FILE) else Calendar()
-    
-    # Load Google API for internal team
-    google_service = get_calendar_service()
-    
-    new_alerts = 0
-
     for url in filter(None, RSS_URLS):
         feed = feedparser.parse(url)
         for entry in reversed(feed.entries):
@@ -82,42 +120,14 @@ def main():
             if link not in processed_urls:
                 if not is_duplicate_news(title, processed_titles) and is_critical_safety_event(title, summary):
                     
-                    start_time = datetime.now(timezone.utc)
-                    end_time = start_time + timedelta(minutes=15)
-                    
-                    # 1. Push to internal Google Calendar (Instantly)
-                    if google_service and CALENDAR_ID:
-                        event_body = {
-                            'summary': f"🚨 PSM Alert: {title[:40]}...",
-                            'description': f"Incident: {title}\n\nSummary: {summary}\n\nLink: {link}",
-                            'start': {'dateTime': start_time.isoformat()},
-                            'end': {'dateTime': end_time.isoformat()},
-                            'colorId': '11' 
-                        }
-                        try:
-                            google_service.events().insert(calendarId=CALENDAR_ID, body=event_body).execute()
-                        except Exception as e:
-                            print(f"Google API Error: {e}")
+                    # Fire the instant email!
+                    send_instant_email(title, summary, link)
 
-                    # 2. Add to ICS file for external Outlook/Apple clients
-                    event = Event()
-                    event.name = f"🚨 PSM Alert: {title[:40]}..."
-                    event.description = f"{title}\n\n{summary}\n\n{link}"
-                    event.begin = start_time
-                    event.duration = timedelta(minutes=15)
-                    ics_calendar.events.add(event)
-                    
                     save_history(TITLE_HISTORY_FILE, title)
                     processed_titles.append(title)
-                    new_alerts += 1
 
                 save_history(URL_HISTORY_FILE, link)
                 processed_urls.add(link)
-
-    # Save the updated ICS file to GitHub
-    if new_alerts > 0:
-        with open(ICS_FILE, "w", encoding="utf-8") as f:
-            f.writelines(ics_calendar.serialize_iter())
 
 if __name__ == "__main__":
     main()

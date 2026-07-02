@@ -1,5 +1,10 @@
 BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Process Safety Alert Engine//EN
+BEGIN:VEVENT
+SUMMARY:🚨 TEST ALERT: PSM System is Working!
+DESCRIPTION:This is a manual test to confirm the connection between GitHub and your calendar.
+DTSTART:20260702T200000Z
+DTEND:20260702T201500Z
+END:VEVENT
 END:VCALENDAR
-

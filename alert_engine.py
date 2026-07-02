@@ -45,7 +45,7 @@ def is_critical_safety_event(title, summary):
     try:
         response = client.models.generate_content(model='gemini-3.1-flash-lite', contents=prompt)
         label = response.text.strip().lower()
-        if label in ["catastrophic industrial incident", "regulatory or legal action"]:
+        if label in ["catastrophic industrial incident", "regulatory or legal action","Other"]:
             return True
         print(f"AI Filter Blocked: {title} ({label})")
         return False

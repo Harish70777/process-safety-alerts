@@ -2,10 +2,9 @@ BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Process Safety Alert Engine//EN
 BEGIN:VEVENT
-SUMMARY:🚨 SIMULATION 2: Pipeline Test Active
-DESCRIPTION:This confirms your phone successfully pulled a secondary update from the cloud feed.
-DTSTART:20260702T220000Z
-DTEND:20260702T223000Z
+SUMMARY:🚨 SIMULATION 3: Future Alert Test
+DESCRIPTION:This confirms the system successfully schedules and displays future process safety events for tomorrow.
+DTSTART:20260703T150000Z
+DTEND:20260703T151500Z
 END:VEVENT
 END:VCALENDAR
-

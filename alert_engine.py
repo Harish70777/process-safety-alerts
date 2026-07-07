@@ -41,14 +41,37 @@ def is_duplicate_news(new_title, past_titles, threshold=0.65):
 def is_critical_safety_event(title, summary):
     if not GEMINI_KEY: return True 
     client = genai.Client(api_key=GEMINI_KEY)
-    prompt = f"Categorize this news headline and summary:\nTitle: {title}\nSummary: {summary}\n\nChoose EXACTLY ONE label:\n- catastrophic industrial incident\n- minor localized spill\n- financial corporate news\n- residential or vehicle accident\n- regulatory or legal action\n- other\n\nRespond with ONLY the exact label name."
+    
+    # NEW SUPER-STRICT AI PROMPT
+    prompt = f"""Analyze this news headline and summary for a Process Safety Management (PSM) alert system:
+Title: {title}
+Summary: {summary}
+
+A True Process Safety Event is an ACCIDENTAL explosion, catastrophic fire, or major toxic chemical release at an industrial facility (refinery, chemical plant, pipeline) due to equipment failure or operational error.
+
+You MUST EXCLUDE:
+- Acts of war, military strikes, drone attacks, or terrorism.
+- Sabotage, vandalism, or intentional pipeline tapping.
+- Stock photos or historical image sales.
+- General political, tourism, or public complaints about risks.
+
+Choose EXACTLY ONE label from the list below:
+- true process safety incident
+- intentional attack or war
+- stock photo or historical
+- regulatory or legal action
+- other
+
+Respond with ONLY the exact label name."""
+
     try:
         response = client.models.generate_content(model='gemini-3.1-flash-lite', contents=prompt)
         label = response.text.strip().lower()
         
-        # The AI Shields are set to strict mode here!
-        if label in ["catastrophic industrial incident", "regulatory or legal action"]:
+        # Now it ONLY lets true accidents through!
+        if label in ["true process safety incident"]:
             return True
+            
         print(f"AI Filter Blocked: {title} ({label})")
         return False
     except Exception as e:

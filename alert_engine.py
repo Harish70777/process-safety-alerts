@@ -132,11 +132,23 @@ def send_instant_email(title, summary, link):
         print(f"Failed to send email: {e}")
 
 def main():
+    # The Disguise: Tells the news server we are a normal Chrome browser
+    feedparser.USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
     processed_urls = set(load_history(URL_HISTORY_FILE))
     processed_titles = load_history(TITLE_HISTORY_FILE)
     
     for url in filter(None, RSS_URLS):
+        print(f"Fetching RSS Feed: {url}")
         feed = feedparser.parse(url)
+        
+        # Diagnostic Check: Did the server block us?
+        if hasattr(feed, 'status'):
+            print(f"Server Status Code: {feed.status}")
+        if not feed.entries:
+            print("WARNING: The news server returned 0 articles! (Possible IP block or empty feed).")
+            continue
+            
         for entry in reversed(feed.entries):
             link = entry.link
             title = entry.title.replace("<b>", "").replace("</b>", "")

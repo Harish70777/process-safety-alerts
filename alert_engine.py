@@ -69,7 +69,7 @@ Respond with ONLY the exact label name."""
         label = response.text.strip().lower()
         
         # Now it ONLY lets true accidents through!
-        if label in ["true process safety incident"]:
+        if label in ["true process safety incident","other"]:
             return True
             
         print(f"AI Filter Blocked: {title} ({label})")
